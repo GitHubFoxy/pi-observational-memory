@@ -15,7 +15,7 @@
  * - Triggers reflector GC at configurable observation-block tokens (default 40k).
  */
 
-import { complete, type Model } from "@mariozechner/pi-ai";
+import { completeSimple, type Model } from "@mariozechner/pi-ai";
 import {
 	type CompactionResult,
 	convertToLlm,
@@ -37,6 +37,11 @@ const OBS_MODE_COMMAND = "obs-mode";
 const OBS_VIEW_COMMAND = "obs-view";
 
 const DEFAULT_RESERVE_TOKENS = 16384;
+
+const OBS_SUMMARIZATION_SYSTEM_PROMPT = `You are a context summarization assistant for a coding agent.
+Produce concise markdown summaries only.
+Never call tools.
+Follow the user's format instructions exactly.`;
 
 const DEFAULT_OBS_MODE = "buffered" as const;
 const DEFAULT_OBSERVER_TRIGGER_TOKENS = 30_000;
@@ -647,25 +652,51 @@ async function summarizeWithModel(
 	maxTokens: number,
 	signal: AbortSignal,
 ): Promise<string> {
-	const response = await complete(
-		model,
-		{
-			messages: [
-				{
-					role: "user",
-					content: [{ type: "text", text: promptText }],
-					timestamp: Date.now(),
-				},
-			],
-		},
-		{ apiKey, maxTokens, signal },
-	);
+	const runSummarization = async (inputPrompt: string): Promise<string> => {
+		const response = await completeSimple(
+			model,
+			{
+				systemPrompt: OBS_SUMMARIZATION_SYSTEM_PROMPT,
+				messages: [
+					{
+						role: "user",
+						content: [{ type: "text", text: inputPrompt }],
+						timestamp: Date.now(),
+					},
+				],
+			},
+			{ apiKey, maxTokens, signal, reasoning: "high" },
+		);
 
-	return response.content
-		.filter((part): part is { type: "text"; text: string } => part.type === "text")
-		.map((part) => part.text)
-		.join("\n")
-		.trim();
+		if (response.stopReason === "error") {
+			throw new Error(`Summarization failed: ${response.errorMessage || "Unknown error"}`);
+		}
+		if (response.stopReason === "aborted") {
+			throw new Error("Summarization aborted");
+		}
+		if (response.stopReason === "toolUse") {
+			throw new Error("Summarization unexpectedly requested tool use");
+		}
+
+		return response.content
+			.filter((part): part is { type: "text"; text: string } => part.type === "text")
+			.map((part) => part.text)
+			.join("\n")
+			.trim();
+	};
+
+	const firstAttempt = await runSummarization(promptText);
+	if (firstAttempt.length > 0) {
+		return firstAttempt;
+	}
+
+	const retryPrompt = `${promptText}\n\nIMPORTANT: Output ONLY markdown in the required three-section format. Do not return empty output.`;
+	const secondAttempt = await runSummarization(retryPrompt);
+	if (secondAttempt.length > 0) {
+		return secondAttempt;
+	}
+
+	throw new Error("Summarization returned empty text");
 }
 
 function isObservationalCompactionDetails(value: unknown): value is ObservationalCompactionDetails {
