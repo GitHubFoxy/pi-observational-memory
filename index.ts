@@ -40,6 +40,8 @@ const DEFAULT_RESERVE_TOKENS = 16384;
 
 const OBS_SUMMARIZATION_SYSTEM_PROMPT = `You are a context summarization assistant for a coding agent.
 Produce concise markdown summaries only.
+Use only information explicitly present in the provided conversation context.
+If information is missing, use "unknown" rather than guessing.
 Never call tools.
 Follow the user's format instructions exactly.`;
 
@@ -115,7 +117,7 @@ function normalizeSummary(raw: string): string {
 		return [
 			"## Observations",
 			"Date: unknown",
-			"- 🟡 00:00 Unable to extract observations from compaction source.",
+			"- 🟡 Unable to extract observations from compaction source.",
 			"",
 			"## Open Threads",
 			"- Continue from retained recent context.",
@@ -132,7 +134,7 @@ function normalizeSummary(raw: string): string {
 	return [
 		"## Observations",
 		"Date: unknown",
-		"- 🟡 00:00 Model returned non-standard output; preserving raw output below.",
+		"- 🟡 Model returned non-standard output; preserving raw output below.",
 		"",
 		"## Open Threads",
 		"- Continue from retained recent context.",
@@ -516,7 +518,7 @@ function reflectSummary(summary: string, mode: ReflectionMode): ReflectionResult
 					const emoji = item.priority === "red" ? "🔴" : item.priority === "yellow" ? "🟡" : "🟢";
 					return `- ${emoji} ${item.body}`;
 				})
-			: ["- 🟡 00:00 No durable observations extracted."]),
+			: ["- 🟡 No durable observations extracted."]),
 		"",
 		"## Open Threads",
 		...(openThreadLines.length > 0 ? openThreadLines.map((line) => `- ${line}`) : ["- (none)"]),
@@ -575,17 +577,18 @@ Rules:
    - 🔴 critical constraints, blockers, deadlines, irreversible decisions
    - 🟡 important but possibly evolving context
    - 🟢 low-priority informational context
-3) Group observations by date when possible.
-4) Keep each bullet single-line and concrete.
-5) Do not answer the user. Do not continue the conversation.
+3) Every bullet must be grounded in the provided conversation or previous observations. Never invent file names, commands, errors, dates, or timestamps.
+4) If exact dates/times are not explicitly present, use "Date: unknown" and omit HH:mm prefixes.
+5) Keep each bullet single-line and concrete.
+6) Do not answer the user. Do not continue the conversation.
 
 Required output format:
 
 ## Observations
-Date: YYYY-MM-DD
-- 🔴 HH:mm [observation]
-- 🟡 HH:mm [observation]
-- 🟢 HH:mm [observation]
+Date: unknown
+- 🔴 [observation]
+- 🟡 [observation]
+- 🟢 [observation]
 
 ## Open Threads
 - [unfinished work item]
@@ -624,13 +627,15 @@ Rules:
 - Keep only durable, actionable context.
 - Preserve critical file paths, decisions, blockers, and requirements.
 - Use priorities: 🔴 critical, 🟡 important, 🟢 informational.
+- Every bullet must be grounded in the provided conversation. Never invent file names, commands, errors, dates, or timestamps.
+- If exact dates/times are not explicitly present, use "Date: unknown" and omit HH:mm prefixes.
 - Output ONLY markdown in this exact structure:
 
 ## Observations
-Date: YYYY-MM-DD
-- 🔴 HH:mm [observation]
-- 🟡 HH:mm [observation]
-- 🟢 HH:mm [observation]
+Date: unknown
+- 🔴 [observation]
+- 🟡 [observation]
+- 🟢 [observation]
 
 ## Open Threads
 - [unfinished work item]
@@ -1364,7 +1369,7 @@ export default function observationalMemoryExtension(pi: ExtensionAPI) {
 					? [
 							"## Observations",
 							extractSection(baseSummary, "## Observations", "## Open Threads") ||
-								"Date: unknown\n- 🟡 00:00 No observations found.",
+								"Date: unknown\n- 🟡 No observations found.",
 						].join("\n")
 					: baseSummary;
 
