@@ -1,0 +1,39 @@
+{
+	"name": "pi-extension-observational-memory",
+	"version": "0.1.0",
+	"description": "Observational-memory compaction strategy for pi with observer/reflector token thresholds",
+	"type": "module",
+	"license": "MIT",
+	"keywords": [
+		"pi-package",
+		"pi",
+		"pi-coding-agent",
+		"extension",
+		"memory",
+		"compaction",
+		"observational-memory"
+	],
+	"files": [
+		"index.ts",
+		"README.md",
+		"DESIGN.md",
+		"package.json"
+	],
+	"scripts": {
+		"lint": "biome check .",
+		"format": "biome format --write .",
+		"check": "npm run lint"
+	},
+	"pi": {
+		"extensions": [
+			"./index.ts"
+		]
+	},
+	"peerDependencies": {
+		"@mariozechner/pi-ai": "*",
+		"@mariozechner/pi-coding-agent": "*"
+	},
+	"devDependencies": {
+		"@biomejs/biome": "^2.3.5"
+	}
+}
