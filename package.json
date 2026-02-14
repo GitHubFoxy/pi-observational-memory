@@ -1,6 +1,6 @@
 {
 	"name": "pi-extension-observational-memory",
-	"version": "0.1.1",
+	"version": "0.1.2",
 	"description": "Observational-memory compaction strategy for pi with observer/reflector token thresholds",
 	"type": "module",
 	"license": "MIT",
