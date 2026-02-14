@@ -15,6 +15,7 @@
 	],
 	"files": [
 		"index.ts",
+		"overlay.ts",
 		"README.md",
 		"DESIGN.md",
 		"package.json"
@@ -31,7 +32,8 @@
 	},
 	"peerDependencies": {
 		"@mariozechner/pi-ai": "*",
-		"@mariozechner/pi-coding-agent": "*"
+		"@mariozechner/pi-coding-agent": "*",
+		"@mariozechner/pi-tui": "*"
 	},
 	"devDependencies": {
 		"@biomejs/biome": "^2.3.5"

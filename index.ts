@@ -27,6 +27,7 @@ import {
 	type SessionEntry,
 	serializeConversation,
 } from "@mariozechner/pi-coding-agent";
+import { ObservationMemoryOverlay, type ObservationMemoryOverlaySnapshot } from "./overlay.js";
 
 const DETAILS_SCHEMA_VERSION = 2;
 
@@ -35,6 +36,7 @@ const OBS_REFLECT_COMMAND = "obs-reflect";
 const OBS_AUTO_COMPACT_COMMAND = "obs-auto-compact";
 const OBS_MODE_COMMAND = "obs-mode";
 const OBS_VIEW_COMMAND = "obs-view";
+const OBS_STATUS_SHORTCUT = "ctrl+shift+o";
 
 const DEFAULT_RESERVE_TOKENS = 16384;
 
@@ -699,6 +701,7 @@ export default function observationalMemoryExtension(pi: ExtensionAPI) {
 	let rawTailRetainTokens = DEFAULT_RAW_TAIL_RETAIN_TOKENS;
 	let autoCompactInFlight = false;
 	let lastAutoCompactAt = 0;
+	let statusOverlayOpen = false;
 
 	pi.registerFlag("obs-auto-compact", {
 		description: "Enable observational auto observer trigger",
@@ -789,6 +792,86 @@ export default function observationalMemoryExtension(pi: ExtensionAPI) {
 				}
 			},
 		});
+	};
+
+	const buildStatusSnapshot = (ctx: ExtensionContext): ObservationMemoryOverlaySnapshot => {
+		const branchEntries = ctx.sessionManager.getBranch();
+		const lastCompaction = [...branchEntries].reverse().find((entry) => entry.type === "compaction");
+		const lastBranchSummary = [...branchEntries].reverse().find((entry) => entry.type === "branch_summary");
+		const rawTailTokens = estimateRawTailTokens(branchEntries);
+		const observationTokens = estimateObservationTokens(lastCompaction?.summary);
+
+		const compactionDetails =
+			lastCompaction && isObservationalCompactionDetails(lastCompaction.details)
+				? {
+					strategy: lastCompaction.details.strategy,
+					model: lastCompaction.details.model,
+					observationCount: lastCompaction.details.observationCount,
+					reflectorRan: lastCompaction.details.reflectorRan,
+					reflectionMode: lastCompaction.details.reflectionMode,
+					observationsDropped: lastCompaction.details.observationsDropped,
+					isSplitTurn: lastCompaction.details.isSplitTurn,
+					usedPreviousSummary: lastCompaction.details.usedPreviousSummary,
+					generatedAt: lastCompaction.details.generatedAt,
+				}
+				: undefined;
+
+		const branchSummaryDetails =
+			lastBranchSummary && isObservationalBranchDetails(lastBranchSummary.details)
+				? {
+					strategy: lastBranchSummary.details.strategy,
+					model: lastBranchSummary.details.model,
+					observationCount: lastBranchSummary.details.observationCount,
+					entryCount: lastBranchSummary.details.entryCount,
+					generatedAt: lastBranchSummary.details.generatedAt,
+				}
+				: undefined;
+
+		return {
+			autoObserverEnabled,
+			observerTriggerTokens,
+			rawTailTokens,
+			reflectorTriggerTokens,
+			observationTokens,
+			autoCompactInFlight,
+			forceReflectPending: forceReflectNextCompaction,
+			lastCompaction: lastCompaction
+				? {
+					id: lastCompaction.id,
+					timestamp: lastCompaction.timestamp,
+					tokensBefore: lastCompaction.tokensBefore,
+					fromExtension: lastCompaction.fromHook,
+					details: compactionDetails,
+				}
+				: undefined,
+			lastBranchSummary: lastBranchSummary
+				? {
+					id: lastBranchSummary.id,
+					timestamp: lastBranchSummary.timestamp,
+					details: branchSummaryDetails,
+				}
+				: undefined,
+			observations: lastCompaction?.summary ? stripFileTags(lastCompaction.summary) : undefined,
+		};
+	};
+
+	const showStatusOverlay = async (ctx: ExtensionContext): Promise<void> => {
+		if (!ctx.hasUI) return;
+		if (statusOverlayOpen) return;
+
+		const snapshot = buildStatusSnapshot(ctx);
+		statusOverlayOpen = true;
+		try {
+			await ctx.ui.custom<null>(
+				(_tui, _theme, _keys, done) => new ObservationMemoryOverlay(snapshot, done),
+				{ overlay: true },
+			);
+		} catch (error) {
+			const message = error instanceof Error ? error.message : String(error);
+			ctx.ui.notify(`Unable to render obs overlay: ${message}`, "error");
+		} finally {
+			statusOverlayOpen = false;
+		}
 	};
 
 	pi.on("session_start", async (_event, ctx) => {
@@ -1014,6 +1097,11 @@ export default function observationalMemoryExtension(pi: ExtensionAPI) {
 	pi.registerCommand(OBS_STATUS_COMMAND, {
 		description: "Show observational-memory compaction and tree summary status",
 		handler: async (_args, ctx) => {
+			if (ctx.hasUI) {
+				await showStatusOverlay(ctx);
+				return;
+			}
+
 			const branchEntries = ctx.sessionManager.getBranch();
 			const lastCompaction = [...branchEntries].reverse().find((entry) => entry.type === "compaction");
 			const lastBranchSummary = [...branchEntries].reverse().find((entry) => entry.type === "branch_summary");
@@ -1083,6 +1171,13 @@ export default function observationalMemoryExtension(pi: ExtensionAPI) {
 			}
 
 			ctx.ui.notify(lines.join("\n"), "info");
+		},
+	});
+
+	pi.registerShortcut(OBS_STATUS_SHORTCUT, {
+		description: "Open observational-memory status overlay",
+		handler: async (ctx) => {
+			await showStatusOverlay(ctx);
 		},
 	});
 
